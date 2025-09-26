@@ -144,11 +144,7 @@ public class PDSEditor : EditorWindow
                 foreach (var p in previewPositions)
                 {
                     float size = HandleUtility.GetHandleSize(p) * previewPointSize;
-#if UNITY_2020_1_OR_NEWER
                     Handles.SphereHandleCap(0, p, Quaternion.identity, size, EventType.Repaint);
-#else
-                    Handles.DotHandleCap(0, p, Quaternion.identity, size, EventType.Repaint);
-#endif
                 }
             }
 
@@ -295,7 +291,7 @@ public class PDSEditor : EditorWindow
 
         // Helper: convert world pos to grid index
         Vector2 Origin = new Vector2(-radius, -radius);
-        System.Func<Vector2, Vector2Int> ToIdx = (Vector2 p) =>
+        System.Func<Vector2, Vector2Int> worldToGridIndex = (Vector2 p) =>
         {
             Vector2 rel = p - Origin; // move to [0, 2R]
             int ix = Mathf.Clamp((int)(rel.x / cellSize), 0, gridW - 1);
@@ -307,41 +303,41 @@ public class PDSEditor : EditorWindow
         Vector2 first = RandomPointInCircle(rng, radius);
         samples.Add(first);
         active.Add(0);
-        var fi = ToIdx(first);
-        grid[fi.x, fi.y] = 0;
+        var firstIndex = worldToGridIndex(first);
+        grid[firstIndex.x, firstIndex.y] = 0;
 
         // 2) Grow set
         while (active.Count > 0)
         {
-            int ai = active[rng.Next(active.Count)];
-            Vector2 a = samples[ai];
+            int activeIndex = active[rng.Next(active.Count)];
+            Vector2 activeSample = samples[activeIndex];
             bool found = false;
 
             for (int attempt = 0; attempt < maxAttemts; attempt++)
             {
-                Vector2 cand = a + RandomAnnulus(rng, minDist, 2f * minDist);
+                Vector2 cand = activeSample + RandomAnnulus(rng, minDist, 2f * minDist);
                 if (cand.sqrMagnitude > radius * radius) continue; // outside circle
 
-                var gi = ToIdx(cand);
-                bool ok = true;
+                var gridIndex = worldToGridIndex(cand);
+                bool valid = true;
 
                 // Check neighbors (within 2 cells in each direction is enough)
-                for (int y = Mathf.Max(0, gi.y - 2); y <= Mathf.Min(gridH - 1, gi.y + 2) && ok; y++)
-                    for (int x = Mathf.Max(0, gi.x - 2); x <= Mathf.Min(gridW - 1, gi.x + 2) && ok; x++)
+                for (int y = Mathf.Max(0, gridIndex.y - 2); y <= Mathf.Min(gridH - 1, gridIndex.y + 2) && valid; y++)
+                    for (int x = Mathf.Max(0, gridIndex.x - 2); x <= Mathf.Min(gridW - 1, gridIndex.x + 2) && valid; x++)
                     {
                         int sIdx = grid[x, y];
                         if (sIdx != -1)
                         {
                             float d2 = (samples[sIdx] - cand).sqrMagnitude;
-                            if (d2 < minDist * minDist) ok = false;
+                            if (d2 < minDist * minDist) valid = false;
                         }
                     }
 
-                if (ok)
+                if (valid)
                 {
                     samples.Add(cand);
                     active.Add(samples.Count - 1);
-                    grid[gi.x, gi.y] = samples.Count - 1;
+                    grid[gridIndex.x, gridIndex.y] = samples.Count - 1;
                     found = true;
                     break;
                 }
