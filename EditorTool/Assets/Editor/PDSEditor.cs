@@ -1,11 +1,9 @@
-﻿using NUnit.Framework;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEditor;
-using System;
-using UnityEngine;
 using UnityEditor.SceneManagement;
+using UnityEngine;
 
-public class PoissonDiscSampling : EditorWindow
+public class PDSEditor : EditorWindow
 {
     [Header("Spawn Settings")]
     public GameObject prefab;
@@ -28,12 +26,17 @@ public class PoissonDiscSampling : EditorWindow
 
     [Header("Randomize")]
     public bool randomizeYaw = true;
+    [Range(0f, 360f)]
     public Vector2 yawRange = new Vector2(0f, 360f);
     public bool randomizeScale = false;
     public bool perAxisScale = false;
+    [Range(0, 100)]
     public Vector2 uniformScaleRange = new Vector2(1f, 1f);
+    [Range(0, 100)]
     public Vector2 xScaleRange = new Vector2(1f, 1f);
+    [Range(0, 100)]
     public Vector2 yScaleRange = new Vector2(1f, 1f);
+    [Range(0, 100)]
     public Vector2 zScaleRange = new Vector2(1f, 1f);
 
     [Header("Preview")]
@@ -41,21 +44,13 @@ public class PoissonDiscSampling : EditorWindow
     public float previewPointSize = 0.05f;
     public Color previewColor = new Color(0.2f, 0.9f, 0.6f, 0.9f);
     public int maxPreviewSamples = 5000;
-
-    // Cached preview
     private readonly List<Vector3> previewPositions = new List<Vector3>();
-    private Vector3 cacheCenter;
-    private float cacheRadius;
-    private float cacheMinDistance;
-    private int cacheSeed;
-    private Vector3 cacheNormal;
-    private bool cacheValid = false;
 
 
-    [MenuItem("Tools/Poisson Spawner (Test)")]
+    [MenuItem("Tools/Poisson Spawner (Live)")]
     public static void Open()
     {
-        var win = GetWindow<PoissonDiscSampling>("Poisson Spawner");
+        var win = GetWindow<PDSEditor>("Poisson Spawner");
         win.minSize = new Vector2(340, 360);
         SceneView.duringSceneGui -= win.OnSceneGUI;
         SceneView.duringSceneGui += win.OnSceneGUI;
@@ -73,8 +68,8 @@ public class PoissonDiscSampling : EditorWindow
             prefab = (GameObject)EditorGUILayout.ObjectField("Prefab", prefab, typeof(GameObject), false);
             radius = EditorGUILayout.Slider("Area Radius", radius, 0.1f, 200f);
             minDistance = EditorGUILayout.Slider("Min Distance", minDistance, 0.05f, 50f);
-            maxAttemptsPerPoint = EditorGUILayout.IntSlider("Attempts / Point", maxAttemptsPerPoint, 5, 60);
-            seed = EditorGUILayout.IntField("Seed", seed);
+            maxAttemptsPerPoint = EditorGUILayout.IntSlider("Attempts / Point", maxAttemptsPerPoint, 5, 100);
+            seed = EditorGUILayout.IntSlider("Seed", seed, 1, 10000);
             parent = (Transform)EditorGUILayout.ObjectField("Parent", parent, typeof(Transform), true);
             placementMask = LayerMaskField("Placement Mask", placementMask);
             upAxis = EditorGUILayout.Vector3Field("Fallback Up Axis", upAxis);
@@ -120,7 +115,6 @@ public class PoissonDiscSampling : EditorWindow
 
         if (GUI.changed)
         {
-            cacheValid = false; // force regen
             SceneView.RepaintAll();
         }
     }
@@ -138,10 +132,10 @@ public class PoissonDiscSampling : EditorWindow
 
             // Draw the disc at the hit point
             Handles.color = DiscColor;
-            Handles.DrawWireDisc(lastHitPoint, GetUp(lastHitNormal), radius);
+            Handles.DrawWireDisc(lastHitPoint, GetUpVector(lastHitNormal), radius);
 
             // Live regenerate preview if needed
-            RegeneratePreviewIfNeeded(lastHitPoint, GetUp(lastHitNormal));
+            RegeneratePreview(lastHitPoint, GetUpVector(lastHitNormal));
 
             // Render preview samples
             if (showPreview && previewPositions.Count > 0)
@@ -161,13 +155,13 @@ public class PoissonDiscSampling : EditorWindow
             // HUD
             Handles.BeginGUI();
             var rect = new Rect(10, 10, 460, 40);
-            GUI.Label(rect, $"Samples: {previewPositions.Count} | Radius: {radius:0.##} | d ≥ {minDistance:0.##} | Spawn: hold {spawnModifier} + LMB");
+            GUI.Label(rect, $"Samples: {previewPositions.Count} | Radius: {radius:0.##} | Dist ≥ {minDistance:0.##} | Spawn: hold {spawnModifier} + LMB");
             Handles.EndGUI();
 
             // Spawn on click + modifier (ignore Alt so we don't fight camera orbit)
             if (e.type == EventType.MouseDown && e.button == 0 && !e.alt && IsSpawnModifierHeld(e, spawnModifier))
             {
-                SpawnFromPreview(GetUp(lastHitNormal));
+                SpawnFromPreview(GetUpVector(lastHitNormal));
                 e.Use();
             }
         }
@@ -196,39 +190,21 @@ public class PoissonDiscSampling : EditorWindow
         }
     }
 
-    private Vector3 GetUp(Vector3 hitNormal)
+    private Vector3 GetUpVector(Vector3 hitNormal)
     {
         if (upAxis.sqrMagnitude > 0.0001f) return upAxis.normalized;
         if (hitNormal.sqrMagnitude > 0.0001f) return hitNormal.normalized;
         return Vector3.up;
     }
 
-    private void RegeneratePreviewIfNeeded(Vector3 center, Vector3 up)
+    private void RegeneratePreview(Vector3 center, Vector3 up)
     {
-        const float centerThreshold = 0.02f;
-
-        bool centerChanged = !cacheValid || (center - cacheCenter).sqrMagnitude > (centerThreshold * centerThreshold);
-        bool radiusChanged = !Mathf.Approximately(radius, cacheRadius);
-        bool distChanged = !Mathf.Approximately(minDistance, cacheMinDistance);
-        bool seedChanged = seed != cacheSeed;
-        bool normalChanged = (up - cacheNormal).sqrMagnitude > 1e-6f;
-
-        if (!(centerChanged || radiusChanged || distChanged || seedChanged || normalChanged))
-            return;
-
-        cacheCenter = center;
-        cacheRadius = radius;
-        cacheMinDistance = minDistance;
-        cacheSeed = seed;
-        cacheNormal = up;
-        cacheValid = true;
-
         // Build a local tangent basis for the disc plane
-        Vector3 n = up;
-        Vector3 t = Vector3.Cross(n, Vector3.up);
-        if (t.sqrMagnitude < 1e-4f) t = Vector3.Cross(n, Vector3.right);
-        t.Normalize();
-        Vector3 b = Vector3.Cross(n, t);
+        Vector3 normal = up;
+        Vector3 tangent = Vector3.Cross(normal, Vector3.up);
+        if (tangent.sqrMagnitude < 1e-4f) tangent = Vector3.Cross(normal, Vector3.right);
+        tangent.Normalize();
+        Vector3 build = Vector3.Cross(normal, tangent);
 
         previewPositions.Clear();
 
@@ -237,12 +213,12 @@ public class PoissonDiscSampling : EditorWindow
         int count = Mathf.Min(samples2D.Count, maxPreviewSamples);
         for (int i = 0; i < count; i++)
         {
-            var p = samples2D[i];
-            Vector3 world = center + t * p.x + b * p.y;
+            var point = samples2D[i];
+            Vector3 world = center + tangent * point.x + build * point.y;
 
             // Reproject to surface for exact ground contact
-            if (Physics.Raycast(world + n * 10f, -n, out var rh, 1000f, placementMask))
-                world = rh.point;
+            if (Physics.Raycast(world + normal * 10f, -normal, out var rayHit, 1000f, placementMask))
+                world = rayHit.point;
 
             previewPositions.Add(world);
         }
@@ -255,16 +231,14 @@ public class PoissonDiscSampling : EditorWindow
             Debug.LogWarning("Poisson Spawner: Assign a Prefab first.");
             return;
         }
-        if (previewPositions.Count == 0)
-            return;
 
         Undo.IncrementCurrentGroup();
         int undoGroup = Undo.GetCurrentGroup();
 
-        // Deterministic PRNG per instance using position hashing
-        foreach (var world in previewPositions)
+        foreach (var worldPointPos in previewPositions)
         {
-            var instance = SafeInstantiate(prefab, parent);
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            if (instance == null) instance = Instantiate(prefab); // fallback
             Undo.RegisterCreatedObjectUndo(instance, "Spawn Poisson Prefab");
 
             // Rotation: align up to surface, then add yaw around that normal
@@ -272,8 +246,7 @@ public class PoissonDiscSampling : EditorWindow
             float yaw = 0f;
             if (randomizeYaw)
             {
-                var rng = new System.Random(Hash(world, seed));
-                yaw = Mathf.Lerp(yawRange.x, yawRange.y, (float)rng.NextDouble());
+                yaw = Random.Range(yawRange.x, yawRange.y);
             }
             Quaternion yawRot = Quaternion.AngleAxis(yaw, up);
             instance.transform.rotation = yawRot * alignUp;
@@ -281,22 +254,21 @@ public class PoissonDiscSampling : EditorWindow
             // Scale
             if (randomizeScale)
             {
-                var rng = new System.Random(Hash(world, (int)(seed ^ 0x9E3779B9)));
                 if (!perAxisScale)
                 {
-                    float s = Mathf.Lerp(uniformScaleRange.x, uniformScaleRange.y, (float)rng.NextDouble());
+                    float s = Random.Range(uniformScaleRange.x, uniformScaleRange.y);
                     instance.transform.localScale = Vector3.one * s;
                 }
                 else
                 {
-                    float sx = Mathf.Lerp(xScaleRange.x, xScaleRange.y, (float)rng.NextDouble());
-                    float sy = Mathf.Lerp(yScaleRange.x, yScaleRange.y, (float)rng.NextDouble());
-                    float sz = Mathf.Lerp(zScaleRange.x, zScaleRange.y, (float)rng.NextDouble());
+                    float sx = Random.Range(xScaleRange.x, xScaleRange.y);
+                    float sy = Random.Range(yScaleRange.x, yScaleRange.y);
+                    float sz = Random.Range(zScaleRange.x, zScaleRange.y);
                     instance.transform.localScale = new Vector3(sx, sy, sz);
                 }
             }
 
-            instance.transform.position = world;
+            instance.transform.position = worldPointPos;
             if (parent != null && instance.transform.parent != parent) instance.transform.SetParent(parent, true);
         }
 
@@ -304,52 +276,8 @@ public class PoissonDiscSampling : EditorWindow
         EditorSceneManager.MarkAllScenesDirty();
     }
 
-    //public static List<Vector2> PoissonDiscCircle(float radius, float maxAttemptsPerPoint, Vector2 sampleSize, int seed)
-    //{
-    //    float cellSize = radius / Mathf.Sqrt(2f);
-
-    //    int[,] grid = new int[Mathf.CeilToInt(sampleSize.x /cellSize), Mathf.CeilToInt(sampleSize.y/cellSize)];
-
-    //    List<Vector2> points = new List<Vector2>();
-
-
-    //    return points;
-    //}
-
-    private static GameObject SafeInstantiate(GameObject prefab, Transform parent)
-    {
-#if UNITY_2021_2_OR_NEWER
-        var stage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
-#else
-        var stage = UnityEditor.Experimental.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
-#endif
-        UnityEngine.Object resultObj = null;
-        if (stage != null)
-        {
-            resultObj = PrefabUtility.InstantiatePrefab(prefab, parent);
-        }
-        else if (parent != null)
-        {
-            resultObj = PrefabUtility.InstantiatePrefab(prefab, parent);
-        }
-        else
-        {
-            resultObj = PrefabUtility.InstantiatePrefab(prefab, EditorSceneManager.GetActiveScene());
-        }
-
-        var go = resultObj as GameObject;
-        if (go == null)
-        {
-            go = UnityEngine.Object.Instantiate(prefab);
-#if UNITY_2020_1_OR_NEWER
-            UnityEditor.SceneManagement.StageUtility.PlaceGameObjectInCurrentStage(go);
-#endif
-        }
-        return go;
-    }
-
     // --------- Poisson Disc (Bridson) over a 2D circle ----------
-    private static List<Vector2> PoissonDisc2DInCircle(float radius, float minDist, int k, int seed)
+    private static List<Vector2> PoissonDisc2DInCircle(float radius, float minDist, int maxAttemts, int seed)
     {
         var rng = new System.Random(seed);
         float cellSize = minDist / Mathf.Sqrt(2f);
@@ -389,7 +317,7 @@ public class PoissonDiscSampling : EditorWindow
             Vector2 a = samples[ai];
             bool found = false;
 
-            for (int attempt = 0; attempt < k; attempt++)
+            for (int attempt = 0; attempt < maxAttemts; attempt++)
             {
                 Vector2 cand = a + RandomAnnulus(rng, minDist, 2f * minDist);
                 if (cand.sqrMagnitude > radius * radius) continue; // outside circle
@@ -442,22 +370,6 @@ public class PoissonDiscSampling : EditorWindow
         return new Vector2(Mathf.Cos((float)ang), Mathf.Sin((float)ang)) * rr;
     }
 
-    // Simple stable integer hash from Vector3 + seed
-    private static int Hash(Vector3 v, int seed)
-    {
-        unchecked
-        {
-            int hx = Mathf.FloorToInt(v.x * 73856093);
-            int hy = Mathf.FloorToInt(v.y * 19349663);
-            int hz = Mathf.FloorToInt(v.z * 83492791);
-            int h = hx ^ hy ^ hz ^ seed;
-            h ^= (h << 13);
-            h ^= (h >> 17);
-            h ^= (h << 5);
-            return h;
-        }
-    }
-
     // Unity has no built-in LayerMask field in Editor GUI outside inspectors
     private static LayerMask LayerMaskField(string label, LayerMask mask)
     {
@@ -494,4 +406,6 @@ public class PoissonDiscSampling : EditorWindow
         }
         return new LayerData { names = names.ToArray(), indices = indices.ToArray() };
     }
+
+
 }
