@@ -134,7 +134,7 @@ public class PDSEditor : EditorWindow
             Handles.color = DiscColor;
             Handles.DrawWireDisc(lastHitPoint, GetUpVector(lastHitNormal), radius);
 
-            // Live regenerate preview if needed
+            // Live regenerate preview
             RegeneratePreview(lastHitPoint, GetUpVector(lastHitNormal));
 
             // Render preview samples
@@ -272,7 +272,6 @@ public class PDSEditor : EditorWindow
         EditorSceneManager.MarkAllScenesDirty();
     }
 
-    // --------- Poisson Disc (Bridson) over a 2D circle ----------
     private static List<Vector2> PoissonDisc2DInCircle(float radius, float minDist, int maxAttemts, int seed)
     {
         var rng = new System.Random(seed);
@@ -299,14 +298,14 @@ public class PDSEditor : EditorWindow
             return new Vector2Int(ix, iy);
         };
 
-        // 1) Start with a random point in the circle
+        // Start with a random point in the circle
         Vector2 first = RandomPointInCircle(rng, radius);
         samples.Add(first);
         active.Add(0);
         var firstIndex = worldToGridIndex(first);
         grid[firstIndex.x, firstIndex.y] = 0;
 
-        // 2) Grow set
+        // Grow set
         while (active.Count > 0)
         {
             int activeIndex = active[rng.Next(active.Count)];
@@ -321,7 +320,7 @@ public class PDSEditor : EditorWindow
                 var gridIndex = worldToGridIndex(cand);
                 bool valid = true;
 
-                // Check neighbors (within 2 cells in each direction is enough)
+                // Check neighbors (within 2 cells in each direction)
                 for (int y = Mathf.Max(0, gridIndex.y - 2); y <= Mathf.Min(gridH - 1, gridIndex.y + 2) && valid; y++)
                     for (int x = Mathf.Max(0, gridIndex.x - 2); x <= Mathf.Min(gridW - 1, gridIndex.x + 2) && valid; x++)
                     {
@@ -367,6 +366,7 @@ public class PDSEditor : EditorWindow
     }
 
     // Unity has no built-in LayerMask field in Editor GUI outside inspectors
+    // Custom LayerMask field
     private static LayerMask LayerMaskField(string label, LayerMask mask)
     {
         var layers = InternalEditorUtilityLayers();
