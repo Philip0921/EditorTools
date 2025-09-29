@@ -198,7 +198,7 @@ public class PDSEditor : EditorWindow
         // Build a local tangent basis for the disc plane
         Vector3 normal = up;
         Vector3 tangent = Vector3.Cross(normal, Vector3.up);
-        if (tangent.sqrMagnitude < 1e-4f) tangent = Vector3.Cross(normal, Vector3.right);
+        if (tangent.sqrMagnitude < 1e-4f /* 1 - 10^4 -> 0.0001*/) tangent = Vector3.Cross(normal, Vector3.right);
         tangent.Normalize();
         Vector3 build = Vector3.Cross(normal, tangent);
 
@@ -234,7 +234,7 @@ public class PDSEditor : EditorWindow
         foreach (var worldPointPos in previewPositions)
         {
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
-            if (instance == null) instance = Instantiate(prefab); // fallback
+            if (instance == null) instance = Instantiate(prefab); 
             Undo.RegisterCreatedObjectUndo(instance, "Spawn Poisson Prefab");
 
             // Rotation: align up to surface, then add yaw around that normal
@@ -288,7 +288,7 @@ public class PDSEditor : EditorWindow
         var samples = new List<Vector2>();
         var active = new List<int>();
 
-        // Helper: convert world pos to grid index
+        // Convert world pos to grid index
         Vector2 Origin = new Vector2(-radius, -radius);
         System.Func<Vector2, Vector2Int> worldToGridIndex = (Vector2 p) =>
         {
@@ -353,7 +353,7 @@ public class PDSEditor : EditorWindow
     {
         double u = rng.NextDouble();
         double ang = rng.NextDouble() * Mathf.PI * 2.0;
-        float rr = (float)(System.Math.Sqrt(u) * r);
+        float rr = Mathf.Sqrt((float)u) * r;
         return new Vector2(Mathf.Cos((float)ang), Mathf.Sin((float)ang)) * rr;
     }
 
