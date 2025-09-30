@@ -26,17 +26,12 @@ public class PDSEditor : EditorWindow
 
     [Header("Randomize")]
     public bool randomizeYaw = true;
-    [Range(0f, 360f)]
     public Vector2 yawRange = new Vector2(0f, 360f);
     public bool randomizeScale = false;
     public bool perAxisScale = false;
-    [Range(0, 100)]
     public Vector2 uniformScaleRange = new Vector2(1f, 1f);
-    [Range(0, 100)]
     public Vector2 xScaleRange = new Vector2(1f, 1f);
-    [Range(0, 100)]
     public Vector2 yScaleRange = new Vector2(1f, 1f);
-    [Range(0, 100)]
     public Vector2 zScaleRange = new Vector2(1f, 1f);
 
     [Header("Preview")]
@@ -47,7 +42,7 @@ public class PDSEditor : EditorWindow
     private readonly List<Vector3> previewPositions = new List<Vector3>();
 
 
-    [MenuItem("Tools/Poisson Spawner (Live)")]
+    [MenuItem("Tools/Poisson Spawner")]
     public static void Open()
     {
         var win = GetWindow<PDSEditor>("Poisson Spawner");
@@ -72,7 +67,7 @@ public class PDSEditor : EditorWindow
             seed = EditorGUILayout.IntSlider("Seed", seed, 1, 10000);
             parent = (Transform)EditorGUILayout.ObjectField("Parent", parent, typeof(Transform), true);
             placementMask = LayerMaskField("Placement Mask", placementMask);
-            upAxis = EditorGUILayout.Vector3Field("Fallback Up Axis", upAxis);
+            upAxis = EditorGUILayout.Vector3Field("Up Axis", upAxis);
         }
 
         using (new EditorGUILayout.VerticalScope("box"))
